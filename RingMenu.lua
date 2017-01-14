@@ -1,5 +1,16 @@
--- Default Settings
-RingMenu_defaultSettings = {
+-- Settings (saved variables)
+
+RingMenu_settings = {
+    global = {}, -- Global settings
+    ring = {},   -- Array containing settings for individual RingMenus
+}
+
+-- Default settings
+
+RingMenu_settingsGlobalDefault = {
+    numRingMenus = 1,
+}
+RingMenu_settingsRingDefault = {
     startPageID = 13,
     numButtons = 12,
     radius = 100.0,
@@ -15,48 +26,85 @@ RingMenu_defaultSettings = {
     zoomButtonIcons = false,
 }
 
-function RingMenu_ResetDefaultSettings()
-    RingMenu_settings = {}
-    for k, v in pairs(RingMenu_defaultSettings) do
-        RingMenu_settings[k] = v
-    end
-end
+-- State (run-time variables, not saved)
 
-function RingMenu_LoadNewDefaultSettings()
-    -- Only updates fields that are not present in the current settings dictionary.
-    -- Used for initializing new settings with sensible initial values after a version update.
-    for k, v in pairs(RingMenu_defaultSettings) do
-        if RingMenu_settings[k] == nil then
-            RingMenu_settings[k] = v
+RingMenu_state = {
+    global = {},
+    ring = {},
+}
+
+-- Default state
+
+RingMenu_stateGlobalDefault = {
+}
+RingMenu_stateRingDefault = {
+    currentSize = 0.0,
+    targetSize = 0.0,
+    currentX = -1.0,
+    targetX = -1.0,
+    currentY = -1.0,
+    targetY = -1.0,
+    isOpen = false,
+}
+
+-- Wipes all settings and replaces them with the default settings.
+function RingMenu_ResetDefaultSettings()
+    -- Reset global settings
+    RingMenu_settings.global = {}
+    for k, v in pairs(RingMenu_settingsGlobalDefault) do
+        RingMenu_settings.global[k] = v
+    end
+    -- Reset individual ring settings
+    for rmi = 1, RingMenu_settings.numRingMenus do
+        for k, v in pairs(RingMenu_settingsRingDefault) do
+            RingMenu_settings.ring[rmi][k] = v
         end
     end
 end
 
--- Settings (saved variables)
-RingMenu_settings = {}
-
--- Runtime variables
-RingMenu_currentSize = 0.0
-RingMenu_targetSize = 0.0
-RingMenu_currentX = -1.0
-RingMenu_targetX = -1.0
-RingMenu_currentY = -1.0
-RingMenu_targetY = -1.0
-RingMenu_isOpen = false
+-- Updates fields that are not present in the current settings dictionary.
+-- Fields that already have values are left unchanged.
+-- Used for initializing new settings with sensible initial values after a version update.
+function RingMenu_LoadNewDefaultSettings()
+    -- Update global settings
+    for k, v in pairs(RingMenu_settingsGlobalDefault) do
+        if RingMenu_settings.global[k] == nil then
+            RingMenu_settings.global[k] = v
+        end
+    end
+    -- Update individual ring settings
+    for rmi = 1, RingMenu_settings.numRingMenus do
+        for k, v in pairs(RingMenu_settingsRingDefault) do
+            if RingMenu_settings.ring[rmi][k] == nil then
+                RingMenu_settings.ring[rmi][k] = v
+            end
+        end
+    end
+end
 
 -- Slash Commands
+
 SLASH_RINGMENU1 = "/ringmenu";
 
 function SlashCmdList.RINGMENU(message)
 	RingMenuSettingsFrame:Show()
 end
 
+-- ActionButton modifications
+-- Each button that is used as a RingMenu buttons has the following properties:
+-- * button.isRingMenu == true
+-- * button.isBonus == true
+-- * button.buttonType == "RING_MENU"
+-- * button.ringMenuIndex states the index of the RingMenu that the button belongs to
+-- * button:GetID() states the button index within its RingMenu
+
 -- Hooked ActionButton functions
 
 local ActionButton_GetPagedID_Old
 function RingMenuButton_GetPagedID(button)
 	if button.isRingMenu then
-		return RingMenu_settings.startPageID + button:GetID() - 1
+        local rmi = button.ringMenuIndex
+		return RingMenu_settings.ring[rmi].startPageID + button:GetID() - 1
 	else
         return ActionButton_GetPagedID_Old(button)
     end
@@ -64,27 +112,34 @@ end
 
 function RingMenuButton_OnClick()
     this:oldScriptOnClick()
-    if IsShiftKeyDown() or CursorHasSpell() or CursorHasItem() then
-        -- User is just changing button slots, keep RingMenu open
-    elseif RingMenu_settings.autoClose then
-        -- Clicked a button, close RingMenu
-        RingMenu_Close()
+    if button.isRingMenu then
+        local rmi = button.ringMenuIndex
+        if IsShiftKeyDown() or CursorHasSpell() or CursorHasItem() then
+            -- User is just changing button slots, keep RingMenu open
+        elseif RingMenu_settings.ring[rmi].autoClose then
+            -- Clicked a button, close RingMenu
+            RingMenu_Close(rmi)
+        end
     end
 end
 
 function RingMenuButton_OnEnter()
     -- Only show the tooltip if the ring menu is currently open
-    -- Prevents flickering tooltips on fadeout animations
-    if RingMenu_isOpen then
-        this:oldScriptOnEnter()
+    -- Prevents flickering tooltips during fadeout animations
+    if button.isRingMenu then
+        local rmi = button.ringMenuIndex
+        if RingMenu_state.ring[rmi].isOpen then
+            this:oldScriptOnEnter()
+        end
     end
 end
 
 -- RingMenuFrame callbacks
 
 function RingMenuFrame_OnLoad()
+    -- Reset settings for now. They'll be immediately overwritten when saved variables are loaded.
+    -- The proper initialization will happen during the VARIABLES_LOADED event handler.
     RingMenu_ResetDefaultSettings()
-    RingMenu_Close()
     this:RegisterEvent("VARIABLES_LOADED")
 end
 
